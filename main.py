@@ -97,7 +97,7 @@ def executar():
         texto, cid = msg_info
         if any(k in texto for k in ["agora", "status", "chuva"]):
             df = pd.read_csv(ARQUIVO)
-            respostas = ["📍 *CONSULTA SOLICITADA*", f"⏰ {data_formatada}\n"]
+            respostas = ["🛰️ *RELATÓRIO BARRAGENS*", f"⏰ {data_formatada}\n"]
             for _, row in df.iterrows():
                 respostas.append(verificar_clima(row['nome'], row['lat'], row['long']))
             enviar_telegram("\n".join(respostas), cid)
