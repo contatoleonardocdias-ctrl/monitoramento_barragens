@@ -9,16 +9,21 @@ CHAT_ID = os.getenv("CHAT_ID")
 ARQUIVO_BARRAGENS = "barragens.csv"
 
 def enviar_telegram(mensagem):
+    """Envia a mensagem final consolidada para o Telegram"""
     if TELEGRAM_TOKEN and CHAT_ID:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": CHAT_ID, "text": mensagem, "parse_mode": "Markdown"}
+        payload = {
+            "chat_id": CHAT_ID, 
+            "text": mensagem, 
+            "parse_mode": "Markdown"
+        }
         try:
-            requests.post(url, json=payload, timeout=10)
+            requests.post(url, json=payload, timeout=15)
         except Exception as e:
-            print(f"Erro Telegram: {e}")
+            print(f"Erro ao enviar Telegram: {e}")
 
 def verificar_clima(nome, lat, lon):
-    # API Open-Meteo
+    """Consulta a API e retorna o status da barragem formatado"""
     url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=precipitation&hourly=precipitation&timezone=America%2FSao_Paulo&forecast_days=1"
     
     try:
@@ -28,7 +33,7 @@ def verificar_clima(nome, lat, lon):
         
         chuva_agora = data['current']['precipitation']
         
-        # Lógica de previsão próxima hora
+        # Pega a previsão da próxima hora
         hora_iso = datetime.now().strftime('%Y-%m-%dT%H:00')
         indices = data['hourly']['time']
         try:
@@ -37,33 +42,41 @@ def verificar_clima(nome, lat, lon):
         except:
             chuva_prevista = 0
 
-        # Dispara alerta se houver qualquer chuva
+        # Formata a linha da barragem para o relatório
         if chuva_agora > 0 or chuva_prevista > 0:
-            msg = (
-                f"⚠️ *ALERTA: {nome.upper()}*\n\n"
-                f"🌧 *Chovendo agora:* {chuva_agora}mm\n"
-                f"📅 *Próxima hora:* {chuva_prevista}mm\n"
-                f"⏰ _Sincronizado: {datetime.now().strftime('%H:%M')}_"
-            )
-            enviar_telegram(msg)
-            return f"Alerta enviado: {nome}"
-        
-        return f"{nome}: Sem chuva."
-    except Exception as e:
-        return f"Erro em {nome}: {e}"
+            return f"⚠️ *{nome}:* {chuva_agora}mm agora / {chuva_prevista}mm prev."
+        else:
+            return f"✅ *{nome}:* Sem chuva"
 
-def executar():
+    except Exception as e:
+        return f"❌ *{nome}:* Erro na consulta"
+
+def executar_job():
     if not os.path.exists(ARQUIVO_BARRAGENS):
         print("Erro: Arquivo barragens.csv não encontrado!")
         return
 
-    # Lendo o CSV (ajustado para suas colunas: nome, lat, long)
+    # Lê a planilha
     df = pd.read_csv(ARQUIVO_BARRAGENS)
     
-    for _, row in df.iterrows():
-        # ATENÇÃO: Os nomes abaixo devem ser iguais aos da sua planilha
-        res = verificar_clima(row['nome'], row['lat'], row['long'])
-        print(res)
+    resultados = []
+    data_hora = datetime.now().strftime('%d/%m/%Y %H:%M')
+    
+    print(f"Iniciando monitoramento em {data_hora}...")
+
+    # Percorre as barragens e guarda o status de cada uma
+    for _, linha in df.iterrows():
+        status = verificar_clima(linha['nome'], linha['lat'], linha['long'])
+        resultados.append(status)
+        print(status)
+
+    # Monta a mensagem final única
+    mensagem_final = f"🛰 *RELATÓRIO METEOROLÓGICO*\n"
+    mensagem_final += f"⏰ Atualizado: {data_hora}\n\n"
+    mensagem_final += "\n".join(resultados)
+    
+    # Envia para o Telegram (uma única vez com todas as informações)
+    enviar_telegram(mensagem_final)
 
 if __name__ == "__main__":
-    executar()
+    executar_job()
