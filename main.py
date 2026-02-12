@@ -7,58 +7,87 @@ from datetime import datetime, timedelta, timezone
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 ARQUIVO = "barragens.csv"
+ARQ_UPDATE = "last_update.txt"
 
-def enviar_telegram(mensagem):
-    if not TOKEN or not CHAT_ID:
-        print("❌ ERRO: Chaves não encontradas!")
-        return
+# ==================== TELEGRAM ====================
+def enviar_telegram(mensagem, chat_id=CHAT_ID):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": mensagem, "parse_mode": "Markdown"}
-    try:
-        res = requests.post(url, json=payload, timeout=15)
-        print("✅ Relatório enviado ao Telegram!" if res.status_code == 200 else f"❌ Erro API: {res.text}")
-    except Exception as e:
-        print(f"❌ Erro conexão: {e}")
+    payload = {"chat_id": chat_id, "text": mensagem, "parse_mode": "Markdown"}
+    requests.post(url, json=payload, timeout=15)
 
+def ler_ultima_mensagem():
+    url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
+    res = requests.get(url, timeout=15).json()
+
+    if not res.get("result"):
+        return None
+
+    ultima = res["result"][-1]
+    texto = ultima.get("message", {}).get("text", "").lower()
+    chat_id = ultima.get("message", {}).get("chat", {}).get("id")
+    update_id = ultima.get("update_id")
+
+    # Evita responder a mesma mensagem
+    if os.path.exists(ARQ_UPDATE):
+        if str(update_id) == open(ARQ_UPDATE).read().strip():
+            return None
+
+    with open(ARQ_UPDATE, "w") as f:
+        f.write(str(update_id))
+
+    return texto, chat_id
+
+# ==================== CLIMA ====================
 def verificar_clima(nome, lat, lon):
-    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=precipitation&hourly=precipitation&timezone=America%2FSao_Paulo&forecast_days=1"
-    try:
-        res = requests.get(url, timeout=15).json()
-        chuva_agora = res['current']['precipitation']
-        
-        # Ajuste de hora para busca na previsão (UTC-3)
-        fuso_br = timezone(timedelta(hours=-3))
-        hora_iso = datetime.now(fuso_br).strftime('%Y-%m-%dT%H:00')
-        
-        indices = res['hourly']['time']
-        try:
-            idx = indices.index(hora_iso)
-            chuva_prev = res['hourly']['precipitation'][idx + 1]
-        except:
-            chuva_prev = 0
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat}&longitude={lon}"
+        f"&current=precipitation"
+        f"&timezone=America%2FSao_Paulo"
+    )
+    res = requests.get(url, timeout=15).json()
+    chuva = res["current"]["precipitation"]
 
-        if chuva_agora > 0 or chuva_prev > 0:
-            return f"⚠️ *{nome}:* {chuva_agora}mm agora / {chuva_prev}mm prev."
-        return f"✅ *{nome}:* Sem chuva"
-    except:
-        return f"❌ *{nome}:* Erro na consulta"
+    return f"🌧 *{nome}:* {chuva} mm agora" if chuva > 0 else f"☀️ *{nome}:* Sem chuva agora"
 
+# ==================== CONSULTA IMEDIATA ====================
+def verificar_consulta_imediata():
+    msg = ler_ultima_mensagem()
+    if not msg:
+        return False
+
+    texto, chat_id = msg
+
+    if "está chovendo agora" in texto or "esta chovendo agora" in texto:
+        df = pd.read_csv(ARQUIVO)
+        respostas = ["📍 *Consulta imediata*\n"]
+
+        for _, row in df.iterrows():
+            respostas.append(verificar_clima(row['nome'], row['lat'], row['long']))
+
+        enviar_telegram("\n".join(respostas), chat_id)
+        return True
+
+    return False
+
+# ==================== MONITOR AUTOMÁTICO ====================
 def executar():
-    if not os.path.exists(ARQUIVO):
-        print("Arquivo CSV não encontrado!")
+    # 1️⃣ Se for consulta imediata, responde e sai
+    if verificar_consulta_imediata():
         return
 
-    # Definindo horário de Brasília para o cabeçalho
+    # 2️⃣ Monitor normal
     fuso_br = timezone(timedelta(hours=-3))
-    agora_br = datetime.now(fuso_br)
-    
+    agora = datetime.now(fuso_br)
+
     df = pd.read_csv(ARQUIVO)
-    relatorio = [f"🛰 *RELATÓRIO BARRAGENS*\n⏰ {agora_br.strftime('%d/%m/%Y %H:%M')}\n"]
-    
+    relatorio = [
+        f"🛰 *RELATÓRIO BARRAGENS*",
+        f"⏰ {agora.strftime('%d/%m/%Y %H:%M')}\n"
+    ]
+
     for _, row in df.iterrows():
-        status = verificar_clima(row['nome'], row['lat'], row['long'])
-        relatorio.append(status)
-        print(status)
+        relatorio.append(verificar_clima(row['nome'], row['lat'], row['long']))
 
     enviar_telegram("\n".join(relatorio))
 
