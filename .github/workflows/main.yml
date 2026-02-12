@@ -2,10 +2,10 @@ name: Monitoramento de barragens
 
 on:
   schedule:
-    - cron: "0 */1 * * *"   # a cada 3 horas (UTC)
+    - cron: "0 * * * *"   # Executa no minuto 0 de cada hora (ex: 13:00, 14:00...)
   repository_dispatch:
     types: [verificar_chuva_agora]
-  workflow_dispatch:
+  workflow_dispatch:      # Permite rodar manualmente pelo botão no GitHub
 
 jobs:
   executar:
