@@ -94,7 +94,7 @@ def executar():
         if any(k in texto for k in ["agora", "status", "chuva"]):
             df = pd.read_csv(ARQUIVO)
             respostas = [
-                "📍 *RELATÓRIO DE BARRAGENS*",
+                "🛰️ *RELATÓRIO DE BARRAGENS*",
                 f"⏰ {data_formatada}\n"
             ]
             for _, row in df.iterrows():
