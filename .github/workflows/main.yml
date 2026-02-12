@@ -1,0 +1,35 @@
+name: Monitoramento de barragens
+
+on:
+  schedule:
+    - cron: "0 */1 * * *"   # a cada 3 horas (UTC)
+  repository_dispatch:
+    types: [verificar_chuva_agora]
+  workflow_dispatch:
+
+jobs:
+  executar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Executar script principal
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          API_METEO_KEY: ${{ secrets.API_METEO_KEY }}
+          MODO: ${{ github.event.action || 'periodico' }}
+        run: |
+          python main.py
