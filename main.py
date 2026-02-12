@@ -41,44 +41,51 @@ def ler_ultima_mensagem():
     except:
         return None
 
-# ==================== CLIMA (LÓGICA REFEITA) ====================
+# ==================== CLIMA (LÓGICA AJUSTADA) ====================
 def verificar_clima(nome, lat, lon):
-    # Adicionado weather_code para detectar trovoadas
+    # Puxamos 'precipitation' (agora) e 'hourly' para pegar a próxima hora (previsto)
     url = (
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
         f"&current=precipitation,is_day,cloud_cover,weather_code"
+        f"&hourly=precipitation"
         f"&timezone=America%2FSao_Paulo"
     )
     try:
         res = requests.get(url, timeout=15).json()
-        dados = res["current"]
-        chuva = dados["precipitation"]
-        is_day = dados["is_day"]
-        nuvens = dados["cloud_cover"]
-        code = dados["weather_code"]
+        atual = res["current"]
+        chuva_agora = atual["precipitation"]
+        
+        # Pega a previsão da próxima hora disponível
+        chuva_prev = res["hourly"]["precipitation"][1] 
 
-        # LÓGICA DE EMOJIS
-        if code in [95, 96, 99]: # Códigos da API para Trovoadas
+        # Lógica de Emojis
+        if atual["weather_code"] in [95, 96, 99]: 
             emoji = "⛈️"
-        elif chuva > 0:
-            emoji = "🌧️" # Nuvem com gotinhas
+        elif chuva_agora > 0:
+            emoji = "🌧️"
         else:
-            if is_day:
-                emoji = "☀️" if nuvens < 25 else "⛅"
+            if atual["is_day"]:
+                emoji = "☀️" if atual["cloud_cover"] < 25 else "⛅"
             else:
-                # Noite: se tiver muita nuvem (nublado), só a nuvem. Se não, a Lua.
-                emoji = "🌙" if nuvens < 25 else "☁️"
+                emoji = "🌙" if atual["cloud_cover"] < 25 else "☁️"
 
-        status_texto = f"{chuva} mm agora" if chuva > 0 else "Sem chuva agora"
+        # Formatação do texto conforme imagem
+        if chuva_agora == 0 and chuva_prev == 0:
+            status_texto = "SEM CHUVA"
+        else:
+            status_texto = f"{chuva_agora:.1f}mm agora / {chuva_prev:.1f}mm prev."
+
         return f"{emoji} *{nome}:* {status_texto}"
     except:
         return f"❌ *{nome}:* Erro na consulta"
 
 # ==================== PROCESSAMENTO ====================
 def executar():
-    fuso_br = timezone(timedelta(hours=-3))
-    agora = datetime.now(fuso_br)
+    # Garantindo Fuso Horário de SP para o cabeçalho
+    fuso_sp = timezone(timedelta(hours=-3))
+    agora = datetime.now(fuso_sp)
+    data_formatada = agora.strftime('%d/%m/%Y %H:%M')
     
     # 1. Verifica se houve comando manual
     msg_info = ler_ultima_mensagem()
@@ -86,7 +93,10 @@ def executar():
         texto, chat_id_remetente = msg_info
         if any(k in texto for k in ["agora", "status", "chuva"]):
             df = pd.read_csv(ARQUIVO)
-            respostas = ["📍 *RELATÓRIO DE BARRAGENS*\n"]
+            respostas = [
+                "📍 *RELATÓRIO DE BARRAGENS*",
+                f"⏰ {data_formatada}\n"
+            ]
             for _, row in df.iterrows():
                 respostas.append(verificar_clima(row['nome'], row['lat'], row['long']))
             enviar_telegram("\n".join(respostas), chat_id_remetente)
@@ -95,8 +105,8 @@ def executar():
     # 2. Relatório Automático (Job 1h)
     df = pd.read_csv(ARQUIVO)
     relatorio = [
-        f"🛰 *RELATÓRIO BARRAGENS*",
-        f"⏰ {agora.strftime('%d/%m %H:%M')}\n"
+        "🛰️ *RELATÓRIO BARRAGENS*",
+        f"⏰ {data_formatada}\n"
     ]
     for _, row in df.iterrows():
         relatorio.append(verificar_clima(row['nome'], row['lat'], row['long']))
