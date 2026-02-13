@@ -24,24 +24,20 @@ def ler_ultima_mensagem():
     try:
         res = requests.get(url, timeout=15).json()
         if not res.get("result"): return None
-
         ultima = res["result"][-1]
         texto = ultima.get("message", {}).get("text", "").lower()
         cid = ultima.get("message", {}).get("chat", {}).get("id")
         update_id = ultima.get("update_id")
-
         if os.path.exists(ARQ_UPDATE):
             with open(ARQ_UPDATE, "r") as f:
                 if str(update_id) == f.read().strip(): return None
-
         with open(ARQ_UPDATE, "w") as f:
             f.write(str(update_id))
-
         return texto, cid
     except:
         return None
 
-# ==================== CLIMA (LÓGICA DE EMOJIS COMBINADOS) ====================
+# ==================== CLIMA (APENAS RELATÓRIO INTEGRADO) ====================
 def verificar_clima(nome, lat, lon):
     url = (
         f"https://api.open-meteo.com/v1/forecast"
@@ -58,33 +54,22 @@ def verificar_clima(nome, lat, lon):
         
         is_day = atual["is_day"]
         nuvens = atual["cloud_cover"]
-        code = atual["weather_code"]
 
-        # 1. Define o emoji base do tempo atual
-        if code in [95, 96, 99]: 
-            emoji = "⛈️"
-        elif chuva_agora > 0:
-            emoji = "🌧️"
+        # Lógica de Emojis e Texto solicitada por você
+        if chuva_agora > 0 or chuva_prev > 0:
+            emoji = "⚠️🌧️"
+            status_texto = f"{chuva_agora:.1f}mm agora / Esperado {chuva_prev:.1f}mm para a próxima hora."
         else:
             if is_day:
                 emoji = "☀️" if nuvens < 25 else "⛅"
             else:
                 emoji = "🌙" if nuvens < 25 else "☁️"
-            
-            # 2. Se não chove agora mas tem PREVISÃO, combina com Alerta
-            if chuva_prev > 0:
-                emoji = f"{emoji}⚠️"
-
-        # 3. Formatação do Texto
-        if chuva_agora == 0 and chuva_prev == 0:
             status_texto = "SEM CHUVA"
-        else:
-            status_texto = f"{chuva_agora:.1f}mm agora / {chuva_prev:.1f}mm prev."
 
-        return f"{emoji} *{nome.upper()}:* {status_texto}"
+        return f"{emoji} - *{nome.upper()}:* {status_texto}"
 
     except Exception:
-        return f"❌ *{nome.upper()}:* Erro na consulta"
+        return f"❌ - *{nome.upper()}:* Erro na consulta"
 
 # ==================== PROCESSAMENTO ====================
 def executar():
@@ -92,6 +77,7 @@ def executar():
     agora = datetime.now(fuso_sp)
     data_formatada = agora.strftime('%d/%m/%Y %H:%M')
     
+    # Verifica se houve comando manual
     msg_info = ler_ultima_mensagem()
     if msg_info:
         texto, cid = msg_info
@@ -103,6 +89,7 @@ def executar():
             enviar_telegram("\n".join(respostas), cid)
             return
 
+    # Relatório Automático (Geral)
     df = pd.read_csv(ARQUIVO)
     relatorio = ["🛰️ *RELATÓRIO BARRAGENS*", f"⏰ {data_formatada}\n"]
     for _, row in df.iterrows():
