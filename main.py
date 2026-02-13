@@ -24,20 +24,24 @@ def ler_ultima_mensagem():
     try:
         res = requests.get(url, timeout=15).json()
         if not res.get("result"): return None
+
         ultima = res["result"][-1]
         texto = ultima.get("message", {}).get("text", "").lower()
         cid = ultima.get("message", {}).get("chat", {}).get("id")
         update_id = ultima.get("update_id")
+
         if os.path.exists(ARQ_UPDATE):
             with open(ARQ_UPDATE, "r") as f:
                 if str(update_id) == f.read().strip(): return None
+
         with open(ARQ_UPDATE, "w") as f:
             f.write(str(update_id))
+
         return texto, cid
     except:
         return None
 
-# ==================== CLIMA (APENAS RELATÓRIO INTEGRADO) ====================
+# ==================== CLIMA (LÓGICA DE SOMA 3H) ====================
 def verificar_clima(nome, lat, lon):
     url = (
         f"https://api.open-meteo.com/v1/forecast"
@@ -50,16 +54,20 @@ def verificar_clima(nome, lat, lon):
         res = requests.get(url, timeout=15).json()
         atual = res["current"]
         chuva_agora = atual["precipitation"]
-        chuva_prev = res["hourly"]["precipitation"][1] 
+        
+        # Soma a previsão das próximas 3 horas (índices 1, 2 e 3 da lista hourly)
+        previsoes_3h = res["hourly"]["precipitation"][1:4]
+        soma_prevista = sum(previsoes_3h)
         
         is_day = atual["is_day"]
         nuvens = atual["cloud_cover"]
 
-        # Lógica de Emojis e Texto solicitada por você
-        if chuva_agora > 0 or chuva_prev > 0:
+        # Se houver chuva agora ou acumulado previsto para as próximas 3h
+        if chuva_agora > 0 or soma_prevista > 0:
             emoji = "⚠️🌧️"
-            status_texto = f"{chuva_agora:.1f}mm agora / Esperado {chuva_prev:.1f}mm para a próxima hora."
+            status_texto = f"{chuva_agora:.1f}mm agora / Esperado {soma_prevista:.1f}mm para as próximas horas."
         else:
+            # Lógica para tempo limpo ou nublado
             if is_day:
                 emoji = "☀️" if nuvens < 25 else "⛅"
             else:
@@ -77,11 +85,11 @@ def executar():
     agora = datetime.now(fuso_sp)
     data_formatada = agora.strftime('%d/%m/%Y %H:%M')
     
-    # Verifica se houve comando manual
+    # 1. Verifica se alguém mandou mensagem para o Bot (Interatividade)
     msg_info = ler_ultima_mensagem()
     if msg_info:
         texto, cid = msg_info
-        if any(k in texto for k in ["agora", "status", "chuva"]):
+        if any(k in texto for k in ["agora", "status", "chuva", "barragem"]):
             df = pd.read_csv(ARQUIVO)
             respostas = ["🛰️ *RELATÓRIO BARRAGENS*", f"⏰ {data_formatada}\n"]
             for _, row in df.iterrows():
@@ -89,13 +97,16 @@ def executar():
             enviar_telegram("\n".join(respostas), cid)
             return
 
-    # Relatório Automático (Geral)
-    df = pd.read_csv(ARQUIVO)
-    relatorio = ["🛰️ *RELATÓRIO BARRAGENS*", f"⏰ {data_formatada}\n"]
-    for _, row in df.iterrows():
-        relatorio.append(verificar_clima(row['nome'], row['lat'], row['long']))
+    # 2. Execução automática (Relatório Geral)
+    try:
+        df = pd.read_csv(ARQUIVO)
+        relatorio = ["🛰️ *RELATÓRIO BARRAGENS*", f"⏰ {data_formatada}\n"]
+        for _, row in df.iterrows():
+            relatorio.append(verificar_clima(row['nome'], row['lat'], row['long']))
 
-    enviar_telegram("\n".join(relatorio))
+        enviar_telegram("\n".join(relatorio))
+    except Exception as e:
+        print(f"Erro ao processar CSV: {e}")
 
 if __name__ == "__main__":
     executar()
