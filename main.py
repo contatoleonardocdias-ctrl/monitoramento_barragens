@@ -54,7 +54,7 @@ def verificar_clima(nome, lat, lon):
             # Modelo com a barra / e a previsão conforme solicitado
             status_formatado = (
                 f"⚠️ **ALERTA DE CHUVA**\n"
-                f"🌧️ **Tempo Real:** {chuva_agora:.1f}mm agora / {chuva_prevista:.1f}mm esperado próxima hora"
+                f"🌧️ **Tempo Real:** {chuva_agora:.1f}mm agora / {chuva_prevista:.1f}mm esperado para próxima hora"
             )
         else:
             emoji = "☀️" if is_day and nuvens < 25 else "⛅" if is_day else "🌙" if nuvens < 25 else "☁️"
@@ -77,7 +77,7 @@ def executar():
     df = pd.read_csv(ARQUIVO)
     
     corpo_mensagem = [
-        "**RELATÓRIO DE BARRAGENS**",
+        "**🛰️ RELATÓRIO DE BARRAGENS**",
         f"⏰ {data_str}\n"
     ]
     
