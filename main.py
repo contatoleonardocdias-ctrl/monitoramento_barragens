@@ -10,7 +10,7 @@ ARQUIVO = "barragens.csv"
 
 def enviar_telegram(mensagem):
     if not TOKEN or not CHAT_ID:
-        print("❌ ERRO: CHAT_ID ou TOKEN não configurados nos Secrets.")
+        print("❌ ERRO: CHAT_ID ou TOKEN não configurados nos Secrets do GitHub.")
         return
     
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -44,16 +44,16 @@ def verificar_clima(nome, lat, lon):
         nuvens = atual["cloud_cover"]
 
         if chuva > 0:
-            # Modelo de alerta solicitado para quando há chuva
+            # Modelo de alerta para quando há chuva
             status_formatado = f"⚠️ **ALERTA DE CHUVA**\n🌧️ **Tempo Real:** Está chovendo {chuva:.1f}mm agora!"
         else:
             # Status simples para quando não há chuva
             emoji = "☀️" if is_day and nuvens < 25 else "⛅" if is_day else "🌙" if nuvens < 25 else "☁️"
             status_formatado = f"{emoji} Sem chuva"
 
-        return f"📍 *{nome.upper()}*\n{status_formatado}"
+        return f"📍 *{nome.upper()}*\n{status_formatado}\n"
     except:
-        return f"📍 *{nome.upper()}*\n❌ Erro na consulta"
+        return f"📍 *{nome.upper()}*\n❌ Erro na consulta\n"
 
 def executar():
     fuso_sp = timezone(timedelta(hours=-3))
@@ -66,19 +66,18 @@ def executar():
 
     df = pd.read_csv(ARQUIVO)
     
-    # Início da mensagem única
+    # Montagem do relatório
     corpo_mensagem = [
-        "🛰️ **RELATÓRIO INTEGRADO DE BARRAGENS**",
-        f"⏰ {data_str}\n",
-        "---"
+        "**RELATÓRIO DE BARRAGENS**",
+        f"⏰ {data_str}\n"
     ]
     
     for _, row in df.iterrows():
+        # Busca a info de cada barragem e adiciona à lista
         info_barragem = verificar_clima(row['nome'], row['lat'], row['long'])
         corpo_mensagem.append(info_barragem)
-        corpo_mensagem.append("---") # Separador entre barragens
 
-    # Junta tudo e envia uma única vez
+    # Envia tudo em uma única mensagem
     enviar_telegram("\n".join(corpo_mensagem))
 
 if __name__ == "__main__":
