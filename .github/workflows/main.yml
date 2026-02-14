@@ -2,10 +2,10 @@ name: Monitoramento de barragens
 
 on:
   schedule:
-    - cron: "0 * * * *"   # Executa no minuto 0 de cada hora (ex: 13:00, 14:00...)
+    - cron: "0 * * * *"   # Executa no minuto 0 de cada hora
   repository_dispatch:
     types: [verificar_chuva_agora]
-  workflow_dispatch:      # Permite rodar manualmente pelo botão no GitHub
+  workflow_dispatch:        # Permite que você clique no botão "Run workflow" para testar agora
 
 jobs:
   executar:
@@ -23,13 +23,10 @@ jobs:
       - name: Instalar dependências
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install pandas requests
 
       - name: Executar script principal
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          API_METEO_KEY: ${{ secrets.API_METEO_KEY }}
-          MODO: ${{ github.event.action || 'periodico' }}
-        run: |
-          python main.py
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python main.py
