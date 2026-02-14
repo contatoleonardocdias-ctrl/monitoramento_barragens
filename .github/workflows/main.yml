@@ -2,15 +2,12 @@ name: Monitoramento de barragens
 
 on:
   schedule:
-    - cron: "0 * * * *"   # Executa no minuto 0 de cada hora
-  repository_dispatch:
-    types: [verificar_chuva_agora]
-  workflow_dispatch:        # Permite que você clique no botão "Run workflow" para testar agora
+    - cron: "0 * * * *"   # Executa exatamente de 1 em 1 hora
+  workflow_dispatch:        # Botão para rodar manual
 
 jobs:
   executar:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout do repositório
         uses: actions/checkout@v4
@@ -21,9 +18,7 @@ jobs:
           python-version: "3.11"
 
       - name: Instalar dependências
-        run: |
-          pip install --upgrade pip
-          pip install pandas requests
+        run: pip install pandas requests
 
       - name: Executar script principal
         env:
