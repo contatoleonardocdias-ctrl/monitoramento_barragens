@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 
 # ==================== CONFIGURAÇÕES ====================
+# Certifique-se de que estas variáveis estão configuradas no seu ambiente (Secrets)
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 ARQUIVO = "barragens.csv"
@@ -22,59 +23,77 @@ def enviar_telegram(mensagem):
     
     try:
         res = requests.post(url, data=payload, timeout=25)
-        if res.status_code != 200:
+        if res.status_code == 200:
+            print("✅ Relatório enviado com sucesso!")
+        else:
             print(f"❌ Erro Telegram: {res.text}")
     except Exception as e:
-        print(f"⚠️ Falha de rede: {e}")
+        print(f"⚠️ Falha de rede ao enviar Telegram: {e}")
 
 def verificar_clima(nome, lat, lon):
-    # Mudamos para buscar precipitação e chuva (rain) das últimas horas também
-    # Isso evita perder chuvas rápidas que a API 'esquece' no tempo real
+    # API Open-Meteo com histórico de 3 horas e previsão
     url = (
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
-        f"&current=precipitation,rain,showers,cloud_cover,is_day"
+        f"&current=precipitation,cloud_cover,is_day"
         f"&hourly=precipitation"
-        f"&past_hours=3"  # Busca as últimas 3 horas para conferir se REALMENTE choveu
+        f"&past_hours=3"
         f"&timezone=America%2FSao_Paulo"
     )
     
     try:
         res = requests.get(url, timeout=25).json()
         
-        # Dados atuais (Soma de chuva contínua + pancadas)
-        chuva_agora = res["current"]["precipitation"]
+        # --- TRATAMENTO SEGURO DE DADOS ---
+        # .get() evita erro se a chave não existir; "or 0.0" evita erro se o valor for None
+        current_data = res.get("current", {})
+        chuva_agora = current_data.get("precipitation") or 0.0
+        is_day = current_data.get("is_day", 1)
+        nuvens = current_data.get("cloud_cover", 0)
         
-        # Histórico recente (últimas 2 horas) - Se choveu e a API já limpou o 'current', pegamos aqui
-        chuva_recente = sum(res["hourly"]["precipitation"][-3:-1]) 
+        # Tratamento da lista horária (passado + futuro)
+        lista_hourly = res.get("hourly", {}).get("precipitation", [])
         
-        # Previsão próxima hora
-        # O índice [-1] após as past_hours costuma ser a próxima hora cheia
-        chuva_prevista = res["hourly"]["precipitation"][-1]
+        # Limpa a lista: se houver qualquer 'None', transforma em 0.0
+        lista_limpa = [n if n is not None else 0.0 for n in lista_hourly]
         
-        is_day = res["current"]["is_day"]
-        nuvens = res["current"]["cloud_cover"]
+        if len(lista_limpa) >= 4:
+            # Soma as últimas 3 horas registradas (posições antes da última)
+            chuva_recente = sum(lista_limpa[-4:-1])
+            # A última posição da lista é a previsão para a próxima hora
+            chuva_prevista = lista_limpa[-1]
+        else:
+            chuva_recente = 0.0
+            chuva_prevista = 0.0
 
-        # Se choveu agora, recentemente ou vai chover logo
+        # --- LÓGICA DE ALERTA ---
         if chuva_agora > 0 or chuva_recente > 0 or chuva_prevista > 0:
-            intensidade = "Fraca" if (chuva_agora + chuva_recente) < 5 else "Moderada" if (chuva_agora + chuva_recente) < 15 else "FORTE"
+            total_visto = chuva_agora + chuva_recente
+            
+            # Classificação visual da intensidade
+            if total_visto < 2: intensidade = "Garoa"
+            elif total_visto < 10: intensidade = "Moderada"
+            else: intensidade = "FORTE"
             
             status_formatado = (
                 f"⚠️ **ALERTA DE CHUVA ({intensidade})**\n"
                 f"🌧️ **Agora:** {chuva_agora:.1f}mm\n"
-                f"🕒 **Acumulado recente:** {chuva_recente:.1f}mm\n"
-                f"🔮 **Próxima hora:** {chuva_prevista:.1f}mm"
+                f"🕒 **Acumulado (3h):** {chuva_recente:.1f}mm\n"
+                f"🔮 **Previsão (1h):** {chuva_prevista:.1f}mm"
             )
         else:
+            # Emojis dinâmicos para quando não está chovendo
             emoji = "☀️" if is_day and nuvens < 25 else "⛅" if is_day else "🌙" if nuvens < 25 else "☁️"
             status_formatado = f"{emoji} Sem chuva registrada"
 
         return f"📍 *{nome.upper()}*\n{status_formatado}\n"
     
     except Exception as e:
-        return f"📍 *{nome.upper()}*\n❌ Erro: {str(e)[:50]}\n"
+        # Retorna o erro de forma amigável no relatório do Telegram
+        return f"📍 *{nome.upper()}*\n❌ Erro nos dados: {str(e)[:40]}\n"
 
 def executar():
+    # Ajuste de fuso horário para o cabeçalho do relatório
     fuso_sp = timezone(timedelta(hours=-3))
     agora = datetime.now(fuso_sp)
     data_str = agora.strftime('%d/%m/%Y %H:%M')
@@ -83,17 +102,25 @@ def executar():
         print(f"❌ Arquivo {ARQUIVO} não encontrado!")
         return
 
-    df = pd.read_csv(ARQUIVO)
+    # Lê a lista de barragens do CSV
+    try:
+        df = pd.read_csv(ARQUIVO)
+    except Exception as e:
+        print(f"❌ Erro ao ler CSV: {e}")
+        return
+    
     corpo_mensagem = [
         "🛰️ **MONITORAMENTO HÍDRICO**",
         f"⏰ {data_str}\n",
         "---"
     ]
     
+    # Percorre cada linha do CSV e consulta o clima
     for _, row in df.iterrows():
         info_barragem = verificar_clima(row['nome'], row['lat'], row['long'])
         corpo_mensagem.append(info_barragem)
 
+    # Envia o blocão de texto de uma vez para o Telegram
     enviar_telegram("\n".join(corpo_mensagem))
 
 if __name__ == "__main__":
