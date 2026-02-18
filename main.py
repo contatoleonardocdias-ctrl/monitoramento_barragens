@@ -10,7 +10,7 @@ ARQUIVO = "barragens.csv"
 ARQUIVO_EXCEL = "monitoramento_chuvas.xlsx"
 
 def atualizar_planilha_excel(novos_dados):
-    """Salva os dados no Excel com Base Bruta e Resumo Mensal"""
+    """Salva os dados no Excel com Base Bruta e Resumo Mensal Silencioso"""
     fuso_sp = timezone(timedelta(hours=-3))
     
     if os.path.exists(ARQUIVO_EXCEL):
@@ -57,18 +57,21 @@ def verificar_clima(nome, lat, lon):
     try:
         res = requests.get(url, timeout=25).json()
         
-        # Coleta de dados conforme seu código original
-        chuva_agora = res["current"].get("precipitation", 0.0)
-        temp = res["current"].get("temperature_2m", 0.0)
-        chuva_recente = sum(res["hourly"]["precipitation"][-3:-1])
-        chuva_prevista = res["hourly"]["precipitation"][-1]
-        is_day = res["current"]["is_day"]
-        nuvens = res["current"]["cloud_cover"]
+        # Blindagem contra NoneType para evitar erro de cálculo
+        chuva_agora = res["current"].get("precipitation", 0.0) if res["current"].get("precipitation") is not None else 0.0
+        temp = res["current"].get("temperature_2m", 0.0) if res["current"].get("temperature_2m") is not None else 0.0
+        is_day = res["current"].get("is_day", 1)
+        nuvens = res["current"].get("cloud_cover", 0)
+        
+        # Processamento da lista horária (evita erro de soma com None)
+        lista_h = [n if n is not None else 0.0 for n in res.get("hourly", {}).get("precipitation", [])]
+        chuva_recente = sum(lista_h[-3:-1]) if len(lista_h) >= 3 else 0.0
+        chuva_prevista = lista_h[-1] if len(lista_h) > 0 else 0.0
 
         fuso_sp = timezone(timedelta(hours=-3))
         agora = datetime.now(fuso_sp)
 
-        # Dados para alimentar a Planilha
+        # Dados para a Planilha
         dados_planilha = {
             "Data": agora.strftime('%d/%m/%Y'),
             "Hora": agora.strftime('%H:%M'),
@@ -77,7 +80,7 @@ def verificar_clima(nome, lat, lon):
             "Temp (C)": temp
         }
 
-        # Formatação da Mensagem Telegram (Sua lógica original)
+        # Formatação da Mensagem (Sua lógica de alertas)
         if chuva_agora > 0 or chuva_recente > 0 or chuva_prevista > 0:
             intensidade = "Fraca" if (chuva_agora + chuva_recente) < 5 else "Moderada" if (chuva_agora + chuva_recente) < 15 else "FORTE"
             status_formatado = (
@@ -116,7 +119,7 @@ def executar():
         if dados:
             dados_para_excel.append(dados)
 
-    # 1. Salva na planilha silenciosamente
+    # 1. Salva na planilha silenciosamente (na nuvem do GitHub)
     if dados_para_excel:
         atualizar_planilha_excel(dados_para_excel)
 
