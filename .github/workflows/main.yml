@@ -2,15 +2,14 @@ name: Monitoramento de barragens
 
 on:
   schedule:
-    - cron: "0 * * * *"   # Executa exatamente de 1 em 1 hora
-  workflow_dispatch:        # Botão para rodar manual
+    - cron: "0 * * * *"   # Executa de 1 em 1 hora
+  workflow_dispatch:      # Permite rodar manual pelo botão
 
 jobs:
   executar:
     runs-on: ubuntu-latest
-    # Permissão necessária para o robô salvar a planilha no repositório
     permissions:
-      contents: write
+      contents: write     # Permissão para o robô salvar arquivos no seu GitHub
       
     steps:
       - name: Checkout do repositório
@@ -22,7 +21,6 @@ jobs:
           python-version: "3.11"
 
       - name: Instalar dependências
-        # ADICIONADO: openpyxl (essencial para as abas do Excel)
         run: pip install pandas requests openpyxl
 
       - name: Executar script principal
@@ -31,10 +29,10 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main.py
 
-      - name: Salvar alterações na planilha (Persistência)
+      - name: Persistir dados na nuvem (GitHub)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add monitoramento_chuvas.xlsx
-          git commit -m "Atualizando base histórica e acumulados [skip ci]" || echo "Sem alterações para salvar"
+          git commit -m "Atualização horária automática [skip ci]" || echo "Sem alterações"
           git push
