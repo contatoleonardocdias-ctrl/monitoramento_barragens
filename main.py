@@ -50,17 +50,20 @@ def verificar_clima(nome, lat, lon):
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
         f"&current=precipitation,is_day,cloud_cover,temperature_2m"
-        f"&hourly=precipitation"
-        f"&timezone=America%2FSao_Paulo"
+        f"&hourly=precipitation&past_hours=3&timezone=America%2FSao_Paulo"
     )
     try:
         res = requests.get(url, timeout=25).json()
         
         chuva_agora = res["current"].get("precipitation", 0.0)
         temp = res["current"].get("temperature_2m", 0.0)
-        chuva_prevista = res["hourly"]["precipitation"][1]
-        is_day = res["current"]["is_day"]
-        nuvens = res["current"]["cloud_cover"]
+        is_day = res["current"].get("is_day", 1)
+        nuvens = res["current"].get("cloud_cover", 0)
+        
+        # Dados extras para o alerta detalhado
+        lista_h = res.get("hourly", {}).get("precipitation", [])
+        chuva_recente = sum(lista_h[-3:-1]) if len(lista_h) >= 3 else 0.0
+        chuva_prevista = lista_h[-1] if len(lista_h) > 0 else 0.0
 
         fuso_sp = timezone(timedelta(hours=-3))
         agora = datetime.now(fuso_sp)
@@ -73,23 +76,29 @@ def verificar_clima(nome, lat, lon):
             "Temp (C)": temp
         }
 
-        # Lógica de Clima e Emojis
-        if chuva_agora > 0 or chuva_prevista > 0:
+        # CONSTRUÇÃO DA MENSAGEM CONFORME O PRINT
+        info_temp = f"🌡️ Temp: {temp:.1f}°C"
+        
+        if chuva_agora > 0 or chuva_recente > 0 or chuva_prevista > 0:
+            intensidade = "Garoa" if (chuva_agora + chuva_recente) < 2 else "Moderada" if (chuva_agora + chuva_recente) < 10 else "FORTE"
             status_clima = (
-                f"🌧️ **Tempo Real:** {chuva_agora:.1f}mm agora / {chuva_prevista:.1f}mm esperado"
+                f"⚠️ ALERTA DE CHUVA ({intensidade})\n"
+                f"🌧️ Agora: {chuva_agora:.1f}mm\n"
+                f"⏱️ Acumulado (3h): {chuva_recente:.1f}mm\n"
+                f"🔮 Previsão (1h): {chuva_prevista:.1f}mm"
             )
-            # Para Alerta de Chuva, o Termômetro vem primeiro
-            status_formatado = f"⚠️ **ALERTA DE CHUVA**\n🌡️ **{temp:.1f}°C**\n{status_clima}"
         else:
+            # Lógica de emoji de nuvens/sol
             if nuvens > 70:
                 emoji = "☁️"
             else:
                 emoji = "☀️" if is_day and nuvens < 25 else "⛅" if is_day else "🌙" if nuvens < 25 else "☁️"
-            
-            # Para Sem Chuva, Termômetro e Emoji na mesma linha
-            status_formatado = f"{emoji} 🌡️ **{temp:.1f}°C** Sem chuva"
+            status_clima = f"{emoji} Sem chuva"
 
-        return f"📍 *{nome.upper()}*\n{status_formatado}\n", dados_planilha
+        # Montagem final: Nome -> Temperatura -> Clima
+        mensagem_formatada = f"📍 *{nome.upper()}*\n{info_temp}\n{status_clima}\n"
+
+        return mensagem_formatada, dados_planilha
     except Exception:
         return f"📍 *{nome.upper()}*\n❌ Erro na consulta\n", None
 
@@ -97,22 +106,4 @@ def executar():
     fuso_sp = timezone(timedelta(hours=-3))
     agora = datetime.now(fuso_sp)
     
-    if not os.path.exists(ARQUIVO): return
-
-    df = pd.read_csv(ARQUIVO)
-    corpo_mensagem = ["**🛰️ RELATÓRIO DE BARRAGENS**", f"⏰ {agora.strftime('%d/%m/%Y %H:%M')}\n"]
-    
-    dados_para_excel = []
-    for _, row in df.iterrows():
-        msg, dados = verificar_clima(row['nome'], row['lat'], row['long'])
-        corpo_mensagem.append(msg)
-        if dados:
-            dados_para_excel.append(dados)
-
-    if dados_para_excel:
-        atualizar_planilha_excel(dados_para_excel)
-
-    enviar_telegram("\n".join(corpo_mensagem))
-
-if __name__ == "__main__":
-    executar()
+    if not os.path.exists(AR
