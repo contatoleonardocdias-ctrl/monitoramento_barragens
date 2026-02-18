@@ -73,20 +73,21 @@ def verificar_clima(nome, lat, lon):
             "Temp (C)": temp
         }
 
+        # Lógica de Clima e Emojis
         if chuva_agora > 0 or chuva_prevista > 0:
-            status_formatado = (
-                f"⚠️ **ALERTA DE CHUVA**\n"
-                f"🌡️ **Temp:** {temp:.1f}°C\n"
+            status_clima = (
                 f"🌧️ **Tempo Real:** {chuva_agora:.1f}mm agora / {chuva_prevista:.1f}mm esperado"
             )
+            # Para Alerta de Chuva, o Termômetro vem primeiro
+            status_formatado = f"⚠️ **ALERTA DE CHUVA**\n🌡️ **{temp:.1f}°C**\n{status_clima}"
         else:
             if nuvens > 70:
                 emoji = "☁️"
             else:
                 emoji = "☀️" if is_day and nuvens < 25 else "⛅" if is_day else "🌙" if nuvens < 25 else "☁️"
             
-            # Temperatura incluída aqui para quando não estiver chovendo
-            status_formatado = f"{emoji} **{temp:.1f}°C** Sem chuva"
+            # Para Sem Chuva, Termômetro e Emoji na mesma linha
+            status_formatado = f"{emoji} 🌡️ **{temp:.1f}°C** Sem chuva"
 
         return f"📍 *{nome.upper()}*\n{status_formatado}\n", dados_planilha
     except Exception:
