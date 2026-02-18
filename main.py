@@ -23,7 +23,6 @@ def atualizar_planilha_excel(novos_dados):
     else:
         df_bruta = pd.DataFrame(novos_dados)
 
-    # Lógica de Resumo Mensal
     df_bruta['Data_dt'] = pd.to_datetime(df_bruta['Data'], format='%d/%m/%Y')
     df_bruta['Mês'] = df_bruta['Data_dt'].dt.strftime('%B / %Y')
 
@@ -38,9 +37,7 @@ def atualizar_planilha_excel(novos_dados):
         aba_resumo.to_excel(writer, sheet_name="Resumo Mensal", index=False)
 
 def enviar_telegram(mensagem):
-    if not TOKEN or not CHAT_ID:
-        print("❌ ERRO: Secrets não configurados.")
-        return
+    if not TOKEN or not CHAT_ID: return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": str(CHAT_ID).strip(), "text": mensagem, "parse_mode": "Markdown"}
     try:
@@ -49,7 +46,6 @@ def enviar_telegram(mensagem):
         pass
 
 def verificar_clima(nome, lat, lon):
-    # API Open-Meteo (Voltou para a anterior)
     url = (
         f"https://api.open-meteo.com/v1/forecast"
         f"?latitude={lat}&longitude={lon}"
@@ -69,7 +65,6 @@ def verificar_clima(nome, lat, lon):
         fuso_sp = timezone(timedelta(hours=-3))
         agora = datetime.now(fuso_sp)
 
-        # Dados para preencher o Excel
         dados_planilha = {
             "Data": agora.strftime('%d/%m/%Y'),
             "Hora": agora.strftime('%H:%M'),
@@ -81,19 +76,20 @@ def verificar_clima(nome, lat, lon):
         if chuva_agora > 0 or chuva_prevista > 0:
             status_formatado = (
                 f"⚠️ **ALERTA DE CHUVA**\n"
-                f"🌧️ **Tempo Real:** {chuva_agora:.1f}mm agora / {chuva_prevista:.1f}mm esperado para próxima hora"
+                f"🌡️ **Temp:** {temp:.1f}°C\n"
+                f"🌧️ **Tempo Real:** {chuva_agora:.1f}mm agora / {chuva_prevista:.1f}mm esperado"
             )
         else:
-            # CORREÇÃO DO EMOJI: Se nuvens > 70% é nublado independente de ser dia ou noite
             if nuvens > 70:
                 emoji = "☁️"
             else:
                 emoji = "☀️" if is_day and nuvens < 25 else "⛅" if is_day else "🌙" if nuvens < 25 else "☁️"
             
-            status_formatado = f"{emoji} Sem chuva"
+            # Temperatura incluída aqui para quando não estiver chovendo
+            status_formatado = f"{emoji} **{temp:.1f}°C** Sem chuva"
 
         return f"📍 *{nome.upper()}*\n{status_formatado}\n", dados_planilha
-    except Exception as e:
+    except Exception:
         return f"📍 *{nome.upper()}*\n❌ Erro na consulta\n", None
 
 def executar():
@@ -112,11 +108,9 @@ def executar():
         if dados:
             dados_para_excel.append(dados)
 
-    # 1. Atualiza a planilha monitoramento_chuvas.xlsx
     if dados_para_excel:
         atualizar_planilha_excel(dados_para_excel)
 
-    # 2. Envia para o Telegram
     enviar_telegram("\n".join(corpo_mensagem))
 
 if __name__ == "__main__":
