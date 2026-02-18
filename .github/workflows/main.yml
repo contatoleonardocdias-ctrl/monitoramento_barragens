@@ -21,7 +21,7 @@ jobs:
           python-version: "3.11"
 
       - name: Instalar dependências
-        run: pip install pandas requests openpyxl
+        run: pip install pandas requests openpyxl urllib3
 
       - name: Executar script principal
         env:
