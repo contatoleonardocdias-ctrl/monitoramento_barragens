@@ -8,6 +8,10 @@ on:
 jobs:
   executar:
     runs-on: ubuntu-latest
+    # Permissão necessária para o robô salvar a planilha no repositório
+    permissions:
+      contents: write
+      
     steps:
       - name: Checkout do repositório
         uses: actions/checkout@v4
@@ -18,10 +22,19 @@ jobs:
           python-version: "3.11"
 
       - name: Instalar dependências
-        run: pip install pandas requests
+        # ADICIONADO: openpyxl (essencial para as abas do Excel)
+        run: pip install pandas requests openpyxl
 
       - name: Executar script principal
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main.py
+
+      - name: Salvar alterações na planilha (Persistência)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add monitoramento_chuvas.xlsx
+          git commit -m "Atualizando base histórica e acumulados [skip ci]" || echo "Sem alterações para salvar"
+          git push
