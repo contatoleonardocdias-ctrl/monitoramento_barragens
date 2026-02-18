@@ -1,89 +1,38 @@
-import requests
-import os
-import pandas as pd
-from datetime import datetime, timedelta, timezone
+name: Monitoramento de barragens
 
-# ==================== CONFIGURAÇÕES ====================
-TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-ARQUIVO_BARRAGENS = "barragens.csv"
-ARQUIVO_EXCEL = "monitoramento_chuvas.xlsx"
+on:
+  schedule:
+    - cron: "0 * * * *"   # Executa de 1 em 1 hora
+  workflow_dispatch:      # Permite rodar manual pelo botão
 
-def atualizar_planilha_excel(novos_dados):
-    fuso_sp = timezone(timedelta(hours=-3))
-    hoje_str = datetime.now(fuso_sp).strftime('%d/%m/%Y')
+jobs:
+  executar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # Permissão para o robô salvar arquivos no seu GitHub
+      
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
 
-    # Carrega Base Bruta ou cria nova
-    if os.path.exists(ARQUIVO_EXCEL):
-        try:
-            # Importante: openpyxl é necessário aqui para ler e escrever abas
-            with pd.ExcelFile(ARQUIVO_EXCEL, engine='openpyxl') as xls:
-                df_bruta = pd.read_excel(xls, "Base Bruta")
-            df_bruta = pd.concat([df_bruta, pd.DataFrame(novos_dados)], ignore_index=True)
-        except:
-            df_bruta = pd.DataFrame(novos_dados)
-    else:
-        df_bruta = pd.DataFrame(novos_dados)
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-    # Garante que a coluna Data seja string para o filtro
-    df_bruta['Data'] = df_bruta['Data'].astype(str)
-    df_hoje = df_bruta[df_bruta['Data'] == hoje_str]
-    
-    # Gera Aba de Acumulado Diário
-    aba_acumulado = df_hoje.groupby('Barragem')['Precipitacao (mm)'].sum().reset_index()
-    aba_acumulado.columns = ['Barragem', 'Total Acumulado Hoje (mm)']
-    aba_acumulado['Ultima Leitura'] = datetime.now(fuso_sp).strftime('%H:%M')
+      - name: Instalar dependências
+        run: pip install pandas requests openpyxl
 
-    # Salva com motor openpyxl (o que estava dando erro)
-    with pd.ExcelWriter(ARQUIVO_EXCEL, engine='openpyxl') as writer:
-        df_bruta.to_excel(writer, sheet_name="Base Bruta", index=False)
-        aba_acumulado.to_excel(writer, sheet_name="Total Dia", index=False)
+      - name: Executar script principal
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python main.py
 
-def enviar_arquivo_telegram():
-    if not TOKEN or not CHAT_ID or not os.path.exists(ARQUIVO_EXCEL): return
-    url = f"https://api.telegram.org/bot{TOKEN}/sendDocument"
-    try:
-        with open(ARQUIVO_EXCEL, 'rb') as f:
-            requests.post(url, data={"chat_id": CHAT_ID}, files={"document": f}, timeout=40)
-    except:
-        pass
-
-def verificar_clima(nome, lat, lon):
-    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=precipitation,temperature_2m&timezone=America%2FSao_Paulo"
-    try:
-        res = requests.get(url, timeout=25).json()
-        curr = res.get("current", {})
-        
-        # Blindagem contra NoneType (o erro de soma)
-        chuva = curr.get("precipitation") if curr.get("precipitation") is not None else 0.0
-        temp = curr.get("temperature_2m") if curr.get("temperature_2m") is not None else 0.0
-        
-        fuso_sp = timezone(timedelta(hours=-3))
-        agora = datetime.now(fuso_sp)
-        
-        return {
-            "Data": agora.strftime('%d/%m/%Y'),
-            "Hora": agora.strftime('%H:%M'),
-            "Barragem": nome.upper(),
-            "Precipitacao (mm)": chuva,
-            "Temp (C)": temp
-        }
-    except:
-        return None
-
-def executar():
-    if not os.path.exists(ARQUIVO_BARRAGENS): return
-    df_lista = pd.read_csv(ARQUIVO_BARRAGENS)
-    
-    lista_dados = []
-    for _, row in df_lista.iterrows():
-        dados = verificar_clima(row['nome'], row['lat'], row['long'])
-        if dados:
-            lista_dados.append(dados)
-
-    if lista_dados:
-        atualizar_planilha_excel(lista_dados)
-        enviar_arquivo_telegram() # Envia a planilha direto no seu Telegram
-
-if __name__ == "__main__":
-    executar()
+      - name: Persistir dados na nuvem (GitHub)
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add monitoramento_chuvas.xlsx
+          git commit -m "Atualização horária automática [skip ci]" || echo "Sem alterações"
+          git push
