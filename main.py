@@ -80,7 +80,7 @@ def verificar_clima(nome, lat, lon):
             )
         else:
             emoji = "☀️" if is_day and nuvens < 25 else "⛅" if is_day else "🌙" if nuvens < 25 else "☁️"
-            status_formatado = f"{txt_temp}\n{emoji} Sem chuva registrada"
+            status_formatado = f"{txt_temp}\n{emoji} Sem chuva"
 
         return f"📍 *{nome.upper()}*\n{status_formatado}\n"
     
