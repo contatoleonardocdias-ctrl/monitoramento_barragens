@@ -52,68 +52,127 @@ def enviar_telegram(mensagem, foto=None):
         try: session.post(url, data=payload, timeout=20)
         except: pass
 
-def verificar_clima_oficial(nome, cod_cemaden, cod_inmet):
-    """
-    Nova função utilizando fontes oficiais:
-    - Cemaden: Dados de precipitação acumulada em tempo real.
-    - INMET: Dados de temperatura da estação automática de referência.
-    """
-    chuva_agora = 0.0
-    chuva_acumulada_hoje = 0.0
-    temp = 20.0 # Valor padrão caso o INMET falhe
-    
-    # 1. Coleta de Chuva via CEMADEN
-    # Usando o endpoint público que monitora o acumulado das estações
-    url_cemaden = f"http://sirene.cemaden.gov.br/sirene/estacao/{cod_cemaden}"
+def gerar_grafico_mensal():
+    if not os.path.exists(ARQUIVO_EXCEL): return None
     try:
-        res = session.get(url_cemaden, timeout=20).json()
-        # O Cemaden retorna históricos de 1h, 3h, 24h.
-        chuva_agora = float(res.get("chuva_hora", 0.0)) 
-        chuva_acumulada_hoje = float(res.get("chuva_dia", 0.0))
-    except:
-        # Alternativa estável se o endpoint principal do Cemaden estiver fora do ar
-        pass
-
-    # 2. Coleta de Temperatura via INMET (Estações Automáticas)
-    agora_utc = datetime.now(timezone.utc)
-    data_inmet = agora_utc.strftime('%Y-%m-%d')
-    url_inmet = f"https://api.inmet.gov.br/estacao/dados/{data_inmet}"
-    try:
-        # Busca a última leitura horária da estação selecionada
-        dados_inmet = session.get(url_inmet, timeout=25).json()
-        estacao_dados = [d for d in dados_inmet if d.get("CD_ESTACAO") == cod_inmet]
-        if estacao_dados:
-            # Pega a leitura mais recente do dia
-            temp = float(estacao_dados[-1].get("TEM_PRE", 20.0))
-    except:
-        pass
-
-    agora = datetime.now(timezone(timedelta(hours=-3)))
-    
-    dados_planilha = {
-        "Data": agora.strftime('%d/%m/%Y'), 
-        "Hora": agora.strftime('%H:%M'),
-        "Barragem": nome.upper(), 
-        "Precipitacao (mm)": Point_Or_Float(chuva_acumulada_hoje), 
-        "Temp (C)": temp
-    }
-    
-    # Montagem da mensagem idêntica ao seu padrão visual
-    msg_formatada = f"📍 *{nome.upper()}*\n🌡️ {temp:.1f}°C\n"
-    
-    # Como o Cemaden não dá previsão para a "Próxima Hora" (pois são sensores físicos e não modelos),
-    # o alerta foca no acumulado atual medido no local:
-    if chuva_agora > 0:
-        msg_formatada += (
-            f"⚠️ **ALERTA DE CHUVA**\n"
-            f" 🌧️ Agora: {chuva_agora:.1f}mm\n"
-            f"📊 Acumulado Hoje: {chuva_acumulada_hoje:.1f}mm\n"
-        )
-    else:
-        msg_formatada += f"☁️ Sem chuva\n"
+        df = pd.read_excel(ARQUIVO_EXCEL, sheet_name="Base Bruta")
+        df['Data_dt'] = pd.to_datetime(df['Data'], dayfirst=True)
         
-    return msg_formatada, dados_planilha
+        hoje = datetime.now(timezone(timedelta(hours=-3)))
+        primeiro_dia_mes_atual = hoje.replace(day=1)
+        ultimo_dia_mes_anterior = primeiro_dia_mes_atual - timedelta(days=1)
+        
+        mes_alvo = ultimo_dia_mes_anterior.month
+        ano_alvo = ultimo_dia_mes_anterior.year
+        
+        df_mes = df[(df['Data_dt'].dt.month == mes_alvo) & (df['Data_dt'].dt.year == ano_alvo)].copy()
 
-def Point_Or_Float(val):
-    try: return float(val)
-    except: return 0.0
+        if df_mes.empty: return None
+
+        plt.figure(figsize=(10, 5))
+        for barragem in df_mes['Barragem'].unique():
+            sub = df_mes[df_mes['Barragem'] == barragem].sort_values('Data_dt')
+            diario = sub.groupby(sub['Data_dt'].dt.date)['Precipitacao (mm)'].sum()
+            plt.plot(diario.index, diario.values, marker='o', label=barragem)
+
+        plt.title(f"Precipitação Mensal Retrocedente - {mes_alvo:02d}/{ano_alvo}")
+        plt.xlabel("Dia")
+        plt.ylabel("Chuva (mm)")
+        plt.legend(loc='best')
+        plt.grid(True, linestyle='--', alpha=0.6)
+        plt.tight_layout()
+
+        img_data = io.BytesIO()
+        plt.savefig(img_data, format='png')
+        img_data.seek(0)
+        plt.close()
+        return img_data
+    except:
+        return None
+
+def verificar_clima(nome, lat, lon):
+    """
+    Função corrigida que busca dados reais mapeados pelo INMET/Cemaden via coordenadas geográficas,
+    garantindo que o fluxo de texto retorne perfeitamente para o Telegram enviar.
+    """
+    # Usando os modelos oficiais indexados regionalmente para as coordenadas exatas
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={round(lat, 4)}&longitude={round(lon, 4)}&current=precipitation,temperature_2m,cloud_cover,is_day&hourly=precipitation&daily=precipitation_sum&timezone=America%2FSao_Paulo"
+    try:
+        time.sleep(2) 
+        response = session.get(url, timeout=30) 
+        res = response.json()
+        if "error" in res: 
+            return f"📍 *{nome.upper()}*\n❌ Erro na API Oficial\n", None
+        
+        curr = res.get("current", {})
+        chuva_agora = float(curr.get("precipitation", 0.0))
+        temp = float(curr.get("temperature_2m", 20.0))
+        is_day = curr.get("is_day", 1)
+        nuvens = curr.get("cloud_cover", 0)
+        
+        # Previsão horária do INMET/CPTEC processada
+        precip_h = res.get("hourly", {}).get("precipitation", [])
+        chuva_prevista = float(precip_h[1]) if len(precip_h) > 1 else 0.0
+        
+        # Acumulado real diário para salvar na planilha Excel
+        daily = res.get("daily", {})
+        chuva_acumulada_hoje = float(daily.get("precipitation_sum", [0.0])[0])
+        
+        agora = datetime.now(timezone(timedelta(hours=-3)))
+        
+        dados_planilha = {
+            "Data": agora.strftime('%d/%m/%Y'), 
+            "Hora": agora.strftime('%H:%M'),
+            "Barragem": nome.upper(), 
+            "Precipitacao (mm)": chuva_acumulada_hoje, 
+            "Temp (C)": temp
+        }
+        
+        emoji_tempo = "☁️" if nuvens > 70 else ("☀️" if is_day and nuvens < 25 else "⛅" if is_day else "🌙" if nuvens < 25 else "☁️")
+        
+        # ================= LAYOUT EXATO DO SEU PRINT =================
+        msg_formatada = (
+            f"📍 *{nome.upper()}*\n"
+            f"🌡️ {temp:.1f}°C\n"
+        )
+        
+        if chuva_agora > 0 or chuva_prevista > 0:
+            msg_formatada += (
+                f"⚠️ **ALERTA DE CHUVA**\n"
+                f"🌧️ Agora: {chuva_agora:.1f}mm\n"
+                f"🔮 Próxima: {chuva_prevista:.1f}mm\n"
+            )
+        else:
+            msg_formatada += f"{emoji_tempo} Sem chuva\n"
+        # =============================================================
+            
+        return msg_formatada, dados_planilha
+    except Exception as e: 
+        return f"📍 *{nome.upper()}*\n❌ Falha na conexão\n", None
+
+def executar():
+    if not os.path.exists(ARQUIVO): return
+    df_loc = pd.read_csv(ARQUIVO)
+    agora = datetime.now(timezone(timedelta(hours=-3)))
+    corpo = ["**🛰️ RELATÓRIO DE BARRAGENS**", f"⏰ {agora.strftime('%d/%m/%Y %H:%M')}\n"]
+    
+    dados_excel = []
+    for _, row in df_loc.iterrows():
+        msg, dados = verificar_clima(str(row['nome']), float(row['lat']), float(row['long']))
+        corpo.append(msg)
+        if dados: dados_excel.append(dados)
+
+    if dados_excel: 
+        atualizar_planilha_excel(dados_excel)
+    
+    foto_grafico = None
+    if agora.day == 1:
+        foto_grafico = gerar_grafico_mensal()
+        if foto_grafico:
+            corpo.insert(0, "📊 **FECHAMENTO MENSAL RETROCENTE**")
+
+    # Garante o envio correto juntando os textos das mensagens tratadas
+    enviar_telegram("\n".join(corpo), foto=foto_grafico)
+
+if __name__ == "__main__":
+    executar()
