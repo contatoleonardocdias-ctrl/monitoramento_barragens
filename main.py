@@ -29,7 +29,11 @@ def atualizar_planilha_excel(novos_dados):
     else:
         df_bruta = pd.DataFrame(novos_dados)
 
+    # Remove duplicatas para o mesmo dia e mesma barragem se o script rodar mais de uma vez ao dia
+    # Mantém apenas o último registro (que terá o acumulado mais atualizado do dia)
     df_bruta['Data_dt'] = pd.to_datetime(df_bruta['Data'], dayfirst=True)
+    df_bruta = df_bruta.sort_values('Hora').drop_duplicates(subset=['Data', 'Barragem'], keep='last')
+    
     df_bruta['Mês'] = df_bruta['Data_dt'].dt.strftime('%B / %Y')
     aba_resumo = df_bruta.groupby(['Barragem', 'Mês'])['Precipitacao (mm)'].sum().reset_index()
     
@@ -91,29 +95,47 @@ def gerar_grafico_mensal():
         return None
 
 def verificar_clima(nome, lat, lon):
-    url = f"https://api.open-meteo.com/v1/forecast?latitude={round(lat, 4)}&longitude={round(lon, 4)}&current=precipitation,is_day,cloud_cover,temperature_2m&hourly=precipitation&timezone=America%2FSao_Paulo"
+    # Alterado o endpoint: Incluído o "daily=precipitation_sum" para trazer o total acumulado do dia de hoje
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={round(lat, 4)}&longitude={round(lon, 4)}&current=precipitation,is_day,cloud_cover,temperature_2m&daily=precipitation_sum&timezone=America%2FSao_Paulo"
     try:
         time.sleep(3) 
         response = session.get(url, timeout=45) 
         res = response.json()
         if "error" in res: return f"📍 *{nome.upper()}*\n❌ Erro na API\n", None
+        
+        # Dados de tempo real para o corpo da mensagem do Telegram
         curr = res.get("current", {})
         chuva_agora = curr.get("precipitation", 0.0)
         temp = curr.get("temperature_2m", 0.0)
         is_day = curr.get("is_day", 1)
         nuvens = curr.get("cloud_cover", 0)
-        precip_h = res.get("hourly", {}).get("precipitation", [])
-        chuva_prevista = precip_h[1] if len(precip_h) > 1 else 0.0
+        
+        # Captura do acumulado diário real da Open-Meteo (Evita a perda de temporais isolados)
+        daily = res.get("daily", {})
+        chuva_acumulada_hoje = daily.get("precipitation_sum", [0.0])[0]
+        
         agora = datetime.now(timezone(timedelta(hours=-3)))
+        
+        # ENGENHARIA DO DADO: Gravamos o acumulado do dia na planilha para o fechamento mensal fazer sentido
         dados_planilha = {
-            "Data": agora.strftime('%d/%m/%Y'), "Hora": agora.strftime('%H:%M'),
-            "Barragem": nome.upper(), "Precipitacao (mm)": chuva_agora, "Temp (C)": temp
+            "Data": agora.strftime('%d/%m/%Y'), 
+            "Hora": agora.strftime('%H:%M'),
+            "Barragem": nome.upper(), 
+            "Precipitacao (mm)": chuva_acumulada_hoje, 
+            "Temp (C)": temp
         }
+        
         emoji = "☁️" if nuvens > 70 else ("☀️" if is_day and nuvens < 25 else "⛅" if is_day else "🌙" if nuvens < 25 else "☁️")
-        status = (f"⚠️ **ALERTA DE CHUVA**\n🌧️ Agora: {chuva_agora:.1f}mm\n🔮 Próxima: {chuva_prevista:.1f}mm" 
-                  if (chuva_agora > 0 or chuva_prevista > 0) else f"{emoji} Sem chuva")
+        
+        # Formatação do Alerta do Bot utilizando as duas métricas
+        if chuva_agora > 0:
+            status = f"⚠️ **ALERTA DE CHUVA**\n🌧️ Intensidade agora: {chuva_agora:.1f} mm/h\n📅 Acumulado hoje: {chuva_acumulada_hoje:.1f} mm"
+        else:
+            status = f"{emoji} Sem chuva no momento\n📅 Acumulado hoje: {chuva_acumulada_hoje:.1f} mm"
+            
         return f"📍 *{nome.upper()}*\n🌡️ {temp:.1f}°C\n{status}\n", dados_planilha
-    except: return f"📍 *{nome.upper()}*\n❌ Falha\n", None
+    except: 
+        return f"📍 *{nome.upper()}*\n❌ Falha na requisição\n", None
 
 def executar():
     if not os.path.exists(ARQUIVO): return
@@ -127,14 +149,15 @@ def executar():
         corpo.append(msg)
         if dados: dados_excel.append(dados)
 
-    if dados_excel: atualizar_planilha_excel(dados_excel)
+    if dados_excel: 
+        atualizar_planilha_excel(dados_excel)
     
     # LÓGICA AUTOMÁTICA: Se for dia 1, gera o gráfico do mês que passou.
     foto_grafico = None
     if agora.day == 1:
         foto_grafico = gerar_grafico_mensal()
         if foto_grafico:
-            corpo.insert(0, "📊 **FECHAMENTO MENSAL RETROcedente**")
+            corpo.insert(0, "📊 **FECHAMENTO MENSAL RETROCENTE**")
 
     enviar_telegram("\n".join(corpo), foto=foto_grafico)
 
